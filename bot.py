@@ -4,30 +4,14 @@ import requests
 import telegram
 import time
 from dotenv import load_dotenv
-
-load_dotenv()
-
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
-DEVMAN_TOKEN = os.getenv("DEVMAN_TOKEN")
-LONG_POLLING_URL = "https://dvmn.org/api/long_polling/"
-SLEEP = 5
-CLIENT_TIMEOUT = 900
-LOG_FILE = "bot.log"
+from logging.handlers import RotatingFileHandler
 
 
-def create_logger(log_file, log_level=logging.INFO):
-    logger = logging.getLogger()
-    logger.setLevel(log_level)
-    logger_handler = logging.FileHandler(log_file)
-    logger_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-    logger_handler.setFormatter(logger_formatter)
-    logger.addHandler(logger_handler)
-    return logger
+logger = logging.getLogger(__file__)
 
 
-def send_message(attempt, logger):
-    bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
+def send_message(attempt, telegram_bot_token, telegram_chat_id):
+    bot = telegram.Bot(token=telegram_bot_token)
 
     message_text = '''У вас проверили работу «%title%»\n\n%status%\n\n%url%'''
 
@@ -35,7 +19,7 @@ def send_message(attempt, logger):
     message_text = message_text.replace("%title%", lesson_title)
 
     is_negative = attempt["is_negative"]
-    if is_negative is False:
+    if not is_negative:
         message_text = message_text.replace("%status%",
                                             "Преподавателю всё понравилось, можно приступать к следующему уроку!")
     else:
@@ -45,14 +29,18 @@ def send_message(attempt, logger):
     lesson_url = "https://dvmn.org{}".format(attempt["lesson_url"])
     message_text = message_text.replace("%url%", lesson_url)
 
-    bot.send_message(chat_id=CHAT_ID, text=message_text)
-    logger.info("Сообщение отправлено.")
-    return       
+    bot.send_message(chat_id=telegram_chat_id, text=message_text)
+    logger.info("Сообщение отправлено")
 
 
-def check_reviews(logger):
+def check_reviews(devman_token,
+                  long_polling_url,
+                  client_timeout,
+                  telegram_bot_token,
+                  telegram_chat_id,
+                  sleep):
     headers = {
-        "Authorization": "Token {}".format(DEVMAN_TOKEN)
+        "Authorization": "Token {}".format(devman_token)
     }
     params = {}
     last_attempt_timestamp_handled = 0
@@ -62,45 +50,77 @@ def check_reviews(logger):
             logger.debug("headers: {}".format(headers))
             logger.debug("params: {}".format(params))
 
-            response = requests.get(LONG_POLLING_URL, headers=headers, params=params, timeout=CLIENT_TIMEOUT)
-            status_code = response.status_code
-            if not status_code == requests.codes.ok:
-                logger.warning("Ответ сервера: {}".format(status_code))
-                time.sleep(SLEEP)
-                continue
+            response = requests.get(long_polling_url, headers=headers, params=params, timeout=client_timeout)
+            response.raise_for_status()
+            
+            response_data = response.json()
+            logger.debug("response_data: {}".format(response_data))
 
-            response_json = response.json()
-            logger.debug("response_json: {}".format(response_json))
+            status = response_data.get("status")
 
-            if "timestamp_to_request" in response_json:
-                timestamp_to_request = response_json["timestamp_to_request"]
+            if status == "timeout":
+                logger.info("Нет новых проверок работ (таймаут)")
+                timestamp_to_request = response_data["timestamp_to_request"]
                 params.update({"timestamp": timestamp_to_request})
 
-            if response_json["status"] == "found":              
-                if last_attempt_timestamp_handled == response_json["last_attempt_timestamp"]:
-                    continue
-                else:
-                    new_attempts = response_json["new_attempts"]
-                    for attempt in new_attempts:
-                        send_message(attempt, logger)
+            elif status == "found":
+                last_attempt_timestamp = response_data["last_attempt_timestamp"]     
 
-                last_attempt_timestamp = response_json["last_attempt_timestamp"]
+                if last_attempt_timestamp_handled > last_attempt_timestamp:
+                    logger.info("Нет новых проверок работ")
+                    params.update({"timestamp": last_attempt_timestamp})
+
+                logger.info("Есть новые проверки работ")
                 params.update({"timestamp": last_attempt_timestamp})
+                new_attempts = response_data["new_attempts"]
+                for attempt in new_attempts:
+                    send_message(attempt, telegram_bot_token, telegram_chat_id)
 
-        except requests.exceptions.ReadTimeout:
-            logger.warning("Произошел таймаут на стороне клиента!")
-            continue
+            else:
+                logger.warning("response_data: {}".format(response_data))
+                time.sleep(sleep)
 
-        except requests.exceptions.ConnectionError:
-            logger.warning("Проблема с соединением!")
-            time.sleep(SLEEP)
-            continue
+        except requests.exceptions.HTTPError as http_err:
+            logger.warning(http_err)
+            time.sleep(sleep)
+
+        except requests.exceptions.ReadTimeout as read_timeout_err:
+            logger.warning(read_timeout_err)
+
+        except requests.exceptions.ConnectionError as connection_err:
+            logger.warning(connection_err)
+            time.sleep(sleep)
 
 
 def main():
-    logger = create_logger(log_file=LOG_FILE, log_level=logging.DEBUG)
+    load_dotenv()
+
+    TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+    TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+    DEVMAN_TOKEN = os.getenv("DEVMAN_TOKEN")
+    LONG_POLLING_URL = "https://dvmn.org/api/long_polling/"
+    SLEEP = 5
+    CLIENT_TIMEOUT = 900
+    LOG_FILE = "bot.log"
+    MAX_LOG_FILE_SIZE = 102400
+    BACKUP_COUNT = 2
+    LOG_LEVEL_CONSOLE = logging.INFO
+
+    logging.basicConfig(level=logging.DEBUG,
+                        format="%(asctime)s - %(levelname)s - %(message)s",
+                        filename=LOG_FILE,
+                        filemode='w')
+
+    RotatingFileHandler(LOG_FILE, maxBytes=MAX_LOG_FILE_SIZE, backupCount=BACKUP_COUNT)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(LOG_LEVEL_CONSOLE)
+    console_formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+    console_handler.setFormatter(console_formatter)
+    logger.addHandler(console_handler)
+
     logger.info("Начало работы скрипта")
-    check_reviews(logger)
+    check_reviews(DEVMAN_TOKEN, LONG_POLLING_URL, CLIENT_TIMEOUT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, SLEEP)
 
 
 if __name__ == "__main__":

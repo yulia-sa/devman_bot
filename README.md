@@ -17,7 +17,7 @@ Devman.
 ```#!bash
 DEVMAN_TOKEN=<devman_token>
 TELEGRAM_BOT_TOKEN=<telegram_bot_token>
-CHAT_ID=<chat_id>
+TELEGRAM_CHAT_ID=<telegram_chat_id>
 ```
 2. Python3 должен быть уже установлен. 
 Затем используйте `pip` (или `pip3`, есть конфликт с Python2) для установки зависимостей:
