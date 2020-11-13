@@ -6,6 +6,13 @@ import time
 from dotenv import load_dotenv
 from logging.handlers import RotatingFileHandler
 
+LONG_POLLING_URL = "https://dvmn.org/api/long_polling/"
+SLEEP = 5
+CLIENT_TIMEOUT = 900
+LOG_FILE = "bot.log"
+MAX_LOG_FILE_SIZE = 102400
+BACKUP_COUNT = 2
+LOG_LEVEL_CONSOLE = logging.INFO
 
 logger = logging.getLogger(__file__)
 
@@ -33,17 +40,16 @@ def send_message(attempt, telegram_bot_token, telegram_chat_id):
     logger.info("Сообщение отправлено")
 
 
-def check_reviews(devman_token,
+def check_reviews(telegram_bot_token,
+                  telegram_chat_id,
+                  devman_token,
                   long_polling_url,
                   client_timeout,
-                  telegram_bot_token,
-                  telegram_chat_id,
                   sleep):
     headers = {
         "Authorization": "Token {}".format(devman_token)
     }
     params = {}
-    last_attempt_timestamp_handled = 0
 
     while True:
         try:
@@ -64,13 +70,8 @@ def check_reviews(devman_token,
                 params.update({"timestamp": timestamp_to_request})
 
             elif status == "found":
-                last_attempt_timestamp = response_data["last_attempt_timestamp"]     
-
-                if last_attempt_timestamp_handled > last_attempt_timestamp:
-                    logger.info("Нет новых проверок работ")
-                    params.update({"timestamp": last_attempt_timestamp})
-
                 logger.info("Есть новые проверки работ")
+                last_attempt_timestamp = response_data["last_attempt_timestamp"]
                 params.update({"timestamp": last_attempt_timestamp})
                 new_attempts = response_data["new_attempts"]
                 for attempt in new_attempts:
@@ -95,16 +96,9 @@ def check_reviews(devman_token,
 def main():
     load_dotenv()
 
-    TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-    TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-    DEVMAN_TOKEN = os.getenv("DEVMAN_TOKEN")
-    LONG_POLLING_URL = "https://dvmn.org/api/long_polling/"
-    SLEEP = 5
-    CLIENT_TIMEOUT = 900
-    LOG_FILE = "bot.log"
-    MAX_LOG_FILE_SIZE = 102400
-    BACKUP_COUNT = 2
-    LOG_LEVEL_CONSOLE = logging.INFO
+    telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    devman_token = os.getenv("DEVMAN_TOKEN")
 
     logging.basicConfig(level=logging.DEBUG,
                         format="%(asctime)s - %(levelname)s - %(message)s",
@@ -120,7 +114,7 @@ def main():
     logger.addHandler(console_handler)
 
     logger.info("Начало работы скрипта")
-    check_reviews(DEVMAN_TOKEN, LONG_POLLING_URL, CLIENT_TIMEOUT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, SLEEP)
+    check_reviews(telegram_bot_token, telegram_chat_id, devman_token, LONG_POLLING_URL, CLIENT_TIMEOUT, SLEEP)
 
 
 if __name__ == "__main__":
