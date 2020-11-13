@@ -96,6 +96,12 @@ def check_reviews(telegram_bot_token,
 def main():
     load_dotenv()
 
+    # Heroku
+    os.environ['TELEGRAM_BOT_TOKEN']
+    os.environ['TELEGRAM_CHAT_ID']
+    os.environ['DEVMAN_TOKEN']
+
+    # Local
     telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
     telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
     devman_token = os.getenv("DEVMAN_TOKEN")
