@@ -13,13 +13,10 @@ LOG_FILE = "bot.log"
 MAX_LOG_FILE_SIZE = 102400
 BACKUP_COUNT = 2
 LOG_LEVEL_CONSOLE = logging.INFO
+LOG_LEVEL_BOT = logging.WARNING
 
-logger = logging.getLogger(__file__)
 
-
-def send_message(attempt, telegram_bot_token, telegram_chat_id):
-    bot = telegram.Bot(token=telegram_bot_token)
-
+def send_message(attempt, bot, telegram_chat_id):
     message_text = '''У вас проверили работу «%title%»\n\n%status%\n\n%url%'''
 
     lesson_title = attempt["lesson_title"]
@@ -37,10 +34,10 @@ def send_message(attempt, telegram_bot_token, telegram_chat_id):
     message_text = message_text.replace("%url%", lesson_url)
 
     bot.send_message(chat_id=telegram_chat_id, text=message_text)
-    logger.info("Сообщение отправлено")
 
 
-def check_reviews(telegram_bot_token,
+def check_reviews(bot,
+                  logger,
                   telegram_chat_id,
                   devman_token,
                   long_polling_url,
@@ -50,6 +47,8 @@ def check_reviews(telegram_bot_token,
         "Authorization": "Token {}".format(devman_token)
     }
     params = {}
+
+    logger.info("Бот запущен")
 
     while True:
         try:
@@ -75,52 +74,74 @@ def check_reviews(telegram_bot_token,
                 params.update({"timestamp": last_attempt_timestamp})
                 new_attempts = response_data["new_attempts"]
                 for attempt in new_attempts:
-                    send_message(attempt, telegram_bot_token, telegram_chat_id)
+                    send_message(attempt, bot, telegram_chat_id)
+                    logger.info("Сообщение о проверке отправлено")
 
             else:
-                logger.warning("response_data: {}".format(response_data))
+                logger.warning("Неожиданный ответ от сервера!\nresponse_data: {}".format(response_data))
                 time.sleep(sleep)
 
         except requests.exceptions.HTTPError as http_err:
-            logger.warning(http_err)
+            logger.warning("Произошла ошибка:\n{}".format(http_err))
             time.sleep(sleep)
 
         except requests.exceptions.ReadTimeout as read_timeout_err:
-            logger.warning(read_timeout_err)
+            logger.warning("Произошла ошибка:\n{}".format(read_timeout_err))
 
         except requests.exceptions.ConnectionError as connection_err:
-            logger.warning(connection_err)
+            logger.warning("Произошла ошибка:\n{}".format(connection_err))
             time.sleep(sleep)
+
+        except Exception as exp:
+            logger.error(exp, exc_info=True)
 
 
 def main():
     load_dotenv()
 
-    # Heroku
-    os.environ['TELEGRAM_BOT_TOKEN']
-    os.environ['TELEGRAM_CHAT_ID']
-    os.environ['DEVMAN_TOKEN']
-
-    # Local
     telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
     telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
     devman_token = os.getenv("DEVMAN_TOKEN")
 
+    bot = telegram.Bot(token=telegram_bot_token)
+    bot_logger = telegram.Bot(token=telegram_bot_token)
+
+    class LogsHandler(logging.Handler):
+
+        def __init__(self):
+            logging.Handler.__init__(self)
+            self.bot_logger = bot_logger
+            self.telegram_chat_id = telegram_chat_id
+
+        def emit(self, record):
+            log_entry = self.format(record)
+            self.bot_logger.send_message(chat_id=self.telegram_chat_id, text=log_entry)
+
+    logger = logging.getLogger(__file__)
+
+    # File logger
     logging.basicConfig(level=logging.DEBUG,
                         format="%(asctime)s - %(levelname)s - %(message)s",
                         filename=LOG_FILE,
                         filemode='w')
 
     RotatingFileHandler(LOG_FILE, maxBytes=MAX_LOG_FILE_SIZE, backupCount=BACKUP_COUNT)
-
+            
+    # Console logger
     console_handler = logging.StreamHandler()
     console_handler.setLevel(LOG_LEVEL_CONSOLE)
     console_formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
 
-    logger.info("Начало работы скрипта")
-    check_reviews(telegram_bot_token, telegram_chat_id, devman_token, LONG_POLLING_URL, CLIENT_TIMEOUT, SLEEP)
+    # Telegram logger
+    telegram_logs_handler = LogsHandler()
+    telegram_logs_handler.setLevel(LOG_LEVEL_BOT)
+    logs_formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+    telegram_logs_handler.setFormatter(logs_formatter)
+    logger.addHandler(telegram_logs_handler)
+
+    check_reviews(bot, logger, telegram_chat_id, devman_token, LONG_POLLING_URL, CLIENT_TIMEOUT, SLEEP)
 
 
 if __name__ == "__main__":
