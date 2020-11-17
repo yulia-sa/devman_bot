@@ -6,7 +6,7 @@ import time
 from dotenv import load_dotenv
 from logging.handlers import RotatingFileHandler
 
-LONG_POLLING_URL = "https://dvmn.org/api/ilong_polling/"
+LONG_POLLING_URL = "https://dvmn.org/api/long_polling/"
 SLEEP = 15
 CLIENT_TIMEOUT = 900
 LOG_FILE = "bot.log"
