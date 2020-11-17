@@ -18,10 +18,10 @@ LOG_LEVEL_BOT = logging.WARNING
 logger = logging.getLogger(__file__)
 
 
-class LogsHandler(logging.Handler):
+class TelegramLogsHandler(logging.Handler):
 
     def __init__(self, bot_logger, telegram_chat_id):
-        logging.Handler.__init__(self)
+        super().__init__()
         self.bot_logger = bot_logger
         self.telegram_chat_id = telegram_chat_id
 
@@ -135,7 +135,7 @@ def main():
     logger.addHandler(console_handler)
 
     # Telegram logger
-    telegram_logs_handler = LogsHandler(bot_logger, telegram_chat_id)
+    telegram_logs_handler = TelegramLogsHandler(bot_logger, telegram_chat_id)
     telegram_logs_handler.setLevel(LOG_LEVEL_BOT)
     logs_formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
     telegram_logs_handler.setFormatter(logs_formatter)
