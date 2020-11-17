@@ -6,14 +6,28 @@ import time
 from dotenv import load_dotenv
 from logging.handlers import RotatingFileHandler
 
-LONG_POLLING_URL = "https://dvmn.org/api/long_polling/"
-SLEEP = 5
+LONG_POLLING_URL = "https://dvmn.org/api/ilong_polling/"
+SLEEP = 15
 CLIENT_TIMEOUT = 900
 LOG_FILE = "bot.log"
 MAX_LOG_FILE_SIZE = 102400
 BACKUP_COUNT = 2
 LOG_LEVEL_CONSOLE = logging.INFO
 LOG_LEVEL_BOT = logging.WARNING
+
+logger = logging.getLogger(__file__)
+
+
+class LogsHandler(logging.Handler):
+
+    def __init__(self, bot_logger, telegram_chat_id):
+        logging.Handler.__init__(self)
+        self.bot_logger = bot_logger
+        self.telegram_chat_id = telegram_chat_id
+
+    def emit(self, record):
+        log_entry = self.format(record)
+        self.bot_logger.send_message(chat_id=self.telegram_chat_id, text=log_entry)
 
 
 def send_message(attempt, bot, telegram_chat_id):
@@ -37,7 +51,6 @@ def send_message(attempt, bot, telegram_chat_id):
 
 
 def check_reviews(bot,
-                  logger,
                   telegram_chat_id,
                   devman_token,
                   long_polling_url,
@@ -106,19 +119,6 @@ def main():
     bot = telegram.Bot(token=telegram_bot_token)
     bot_logger = telegram.Bot(token=telegram_bot_token)
 
-    class LogsHandler(logging.Handler):
-
-        def __init__(self):
-            logging.Handler.__init__(self)
-            self.bot_logger = bot_logger
-            self.telegram_chat_id = telegram_chat_id
-
-        def emit(self, record):
-            log_entry = self.format(record)
-            self.bot_logger.send_message(chat_id=self.telegram_chat_id, text=log_entry)
-
-    logger = logging.getLogger(__file__)
-
     # File logger
     logging.basicConfig(level=logging.DEBUG,
                         format="%(asctime)s - %(levelname)s - %(message)s",
@@ -135,13 +135,13 @@ def main():
     logger.addHandler(console_handler)
 
     # Telegram logger
-    telegram_logs_handler = LogsHandler()
+    telegram_logs_handler = LogsHandler(bot_logger, telegram_chat_id)
     telegram_logs_handler.setLevel(LOG_LEVEL_BOT)
     logs_formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
     telegram_logs_handler.setFormatter(logs_formatter)
     logger.addHandler(telegram_logs_handler)
 
-    check_reviews(bot, logger, telegram_chat_id, devman_token, LONG_POLLING_URL, CLIENT_TIMEOUT, SLEEP)
+    check_reviews(bot, telegram_chat_id, devman_token, LONG_POLLING_URL, CLIENT_TIMEOUT, SLEEP)
 
 
 if __name__ == "__main__":
